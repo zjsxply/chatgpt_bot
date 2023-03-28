@@ -1,15 +1,14 @@
 from aiocqhttp import CQHttp, Event
 from aiocqhttp import Message, MessageSegment
 from aiocqhttp.message import unescape
-from config import PORT, DEFAULT_CMD, ADMIN_QQ, BOT_INFO_PREFIX, RESET_CMD, OPENAI_CHAT_API_CMDS, OPENAI_CHAT_WEB_CMDS, BING_CMDS, BARD_CMDS, GROUP_ID, RELOAD_CMD, USAGE_CMD, MAX_ROWS, VOICE_CMD
-import adapter
-import render
-import unicodedata
 import logging
-from datetime import datetime
 import re
-import asyncio
 import pypinyin
+
+import utilities
+import render
+import adapter
+import config
 
 
 logger = logging.getLogger(__name__)
@@ -19,41 +18,8 @@ bot = CQHttp()
 
 sessions = adapter.Sessions()
 
-def _get_display_rows_num(s: str) -> int:
-    '''估算在手机上显示的纵向行数'''
-    return sum((_get_width(line)-1)//28+1 for line in s.splitlines())
-
-def _get_width(s: str) -> int:
-    """Return the screen column width for unicode string s."""
-    widths = [
-        (126,    1), (159,    0), (687,     1), (710,   0), (711,   1), 
-        (727,    0), (733,    1), (879,     0), (1154,  1), (1161,  0), 
-        (4347,   1), (4447,   2), (7467,    1), (7521,  0), (8369,  1), 
-        (8426,   0), (9000,   1), (9002,    2), (11021, 1), (12350, 2), 
-        (12351,  1), (12438,  2), (12442,   0), (19893, 2), (19967, 1),
-        (55203,  2), (63743,  1), (64106,   2), (65039, 1), (65059, 0),
-        (65131,  2), (65279,  1), (65376,   2), (65500, 1), (65510, 2),
-        (120831, 1), (262141, 2), (1114109, 1),
-    ]
-    width = 0
-    for c in s:
-        o = ord(c)
-        if o == 0xe or o == 0xf:
-            width += 0
-            continue
-        for num, wid in widths:
-            if o <= num:
-                width += wid
-                break
-        if o > num:
-            width += 1
-    return width
-
-def _fuzzy_equal(a: str, b: str) -> bool:
-    return unicodedata.normalize('NFKC', a).lower() == unicodedata.normalize('NFKC', b).lower()
-
 def generate_session_id(model: str, event: Event) -> str:
-    # 生成会话 id：[group_id]-[anonymous_id]-user_id-model
+    '''生成会话 id：[group_id]-[anonymous_id]-user_id-model'''
     session_id = ''
     if event.message_type == 'group':
         session_id += f'{event.group_id}-'
@@ -65,7 +31,7 @@ def generate_session_id(model: str, event: Event) -> str:
 def mask_sensitive_text(text_list: list, regex_file: str) -> list:
     '''
     text_list: 要过滤敏感词的文本列表
-    regex_file: 敏感词匹配正则表达式 txt，一行一个
+    regex_file: 敏感词匹配正则表达式 txt 路径，一行一个
     '''
     with open(regex_file, encoding='UTF-8') as f:
         patterns = [re.compile(line.strip()) for line in f]
@@ -114,7 +80,7 @@ def _cut_message(segments: Message, MAX_LEN: int) -> list[MessageSegment]:
     return cuts
 
 async def reply_msg(event: Event, reply: str, voice: bool) -> None:
-    '''按过滤敏感词、过长分条等要求，回复消息'''
+    '''按过滤敏感词、语音、过长分条等要求，回复消息'''
     segments = Message(reply)
     
     # 过滤敏感词
@@ -130,7 +96,7 @@ async def reply_msg(event: Event, reply: str, voice: bool) -> None:
         await bot.send(event, {'type': 'tts', 'data': {'text': reply_pure_text}})
     
     # 若超出 QQ 单条消息长度限制则转发消息，若超出 QQ 单条消息长度限制则分条
-    elif _get_display_rows_num(reply_pure_text) > MAX_ROWS:
+    elif utilities.get_display_rows_num(reply_pure_text) > config.MAX_ROWS:
         bot_name = (await bot.call_action('get_login_info'))['nickname']
         
         MAX_LEN = 2500
@@ -159,7 +125,7 @@ async def reply_msg(event: Event, reply: str, voice: bool) -> None:
     return 
 
 async def _is_in_group(group_id: int, user_id: int) -> bool:
-    '''判断一人是否在一个群中'''
+    '''判断某人是否在某群中'''
     try:
         group_member_info = await bot.call_action('get_group_member_info', group_id=group_id, user_id=user_id)
     except Exception as e:
@@ -171,42 +137,36 @@ async def check_permission(event: Event) -> tuple[bool, str]:
     '''Checks if user has permission to access the bot. '''
     
     # 匿名用户不在成员列表中，但也允许访问
-    if event.group_id == GROUP_ID:
+    if event.group_id == config.GROUP_ID:
         return True, None
-    
-    """ # 这个群里也可以
-    if event.group_id == 230661257:
-        return True, None """
 
     # 若此人不在指定群里，则拒绝请求
-    if not await _is_in_group(GROUP_ID, event.user_id):
+    if not await _is_in_group(config.GROUP_ID, event.user_id):
         return False, '您需要是指定群的群成员，才可使用本Bot'
     
     return True, None
 
-_starts_with = lambda msg, prefix: _fuzzy_equal(msg[:len(prefix)], prefix)
-
 def _is_command(msg_content, cmds: list) -> str:
     '''若是以某指令开头，则返回该指令'''
     for cmd in cmds:
-        if _starts_with(msg_content, cmd):
+        if utilities.starts_with(msg_content, cmd):
             return cmd
 
 def check_command(event: Event, segments: Message, msg_content: str) -> tuple[str, str]:
     '''Checks if msg is a command and what command it is. Private msgs are regarded as a default command. '''
-    for cmds in (OPENAI_CHAT_API_CMDS, BING_CMDS, OPENAI_CHAT_WEB_CMDS, BARD_CMDS, ):
+    for cmds in (config.OPENAI_CHAT_API_CMDS, config.BING_CMDS, config.OPENAI_CHAT_WEB_CMDS, config.BARD_CMDS, ):
         prefix = _is_command(msg_content, cmds)
         if prefix:
             question = msg_content[len(prefix):].strip()
             break
     else:
         if event.message_type == 'private':
-            prefix = DEFAULT_CMD
+            prefix = config.DEFAULT_CMD
             question = msg_content.strip()
         else:
             for seg in segments:
                 if seg.type == 'at' and seg.data['qq'] == str(event.self_id):
-                    prefix = DEFAULT_CMD
+                    prefix = config.DEFAULT_CMD
                     question = msg_content.strip()
                     break
             else:
@@ -228,40 +188,39 @@ async def _(event: Event):
     # 校验权限
     permitted, info = await check_permission(event)
     if not permitted and info:
-        return {'reply': f'{MessageSegment.reply(event.message_id)}{BOT_INFO_PREFIX}{info}'}
+        return {'reply': f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}{info}'}
     
     logger.info(f'开始处理指令: {event.message_type}, {event.user_id}, {event.message}')
     try:
 
         # 处理重置会话指令
         session_id = generate_session_id(prefix, event)
-        if _fuzzy_equal(question, RESET_CMD):
+        if utilities.fuzzy_equal(question, config.RESET_CMD):
             await sessions.rm_history(session_id)
-            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{BOT_INFO_PREFIX}已重置您的会话')
+            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}已重置您的会话')
             return
 
         # 处理账户额度指令
-        if _fuzzy_equal(question, USAGE_CMD):
+        if utilities.fuzzy_equal(question, config.USAGE_CMD):
             result = await adapter.check_credits()
             reply = '已使用${}，剩余${}/${}，{}到期'.format(*result)
-            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{BOT_INFO_PREFIX}{reply}')
+            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}{reply}')
             return
 
         # 处理语音指令
-        if _fuzzy_equal(question, VOICE_CMD):
+        if utilities.fuzzy_equal(question, config.VOICE_CMD):
             result = await sessions.set_voice(prefix, session_id)
             reply = '已开启语音回复' if result else '已关闭语音回复'
-            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{BOT_INFO_PREFIX}{reply}')
+            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}{reply}')
             return
         
-        # 戳一戳以示收到
-        # await bot.send(event, MessageSegment.poke('poke', event.user_id))
-        await bot.send(event, {'type': 'poke', 'data': {'id': event.user_id}})
+        # 戳一戳以示收到（好像没用）
+        await bot.send(event, MessageSegment.poke('poke', event.user_id))
 
         # 取出回复内容
         reply, finish_reason = await sessions.ask(prefix, session_id, question)
         if finish_reason == 'length':
-            reply += f'\n{BOT_INFO_PREFIX}回复过长已被截断，您可说`继续`来获取接下来的内容'
+            reply += f'\n{config.BOT_INFO_PREFIX}回复过长已被截断，您可说`继续`来获取接下来的内容'
         
         # 渲染 LaTeX 公式、替换 Markdown 图片
         try:
@@ -272,25 +231,29 @@ async def _(event: Event):
         # 若发送了图片，则进行提示
         for segment in segments:
             if segment.type == 'image':
-                reply = f'{BOT_INFO_PREFIX}不支持图片输入，已将您消息中的图片忽略后提交给AI\n\n' + reply
+                reply = f'{config.BOT_INFO_PREFIX}不支持图片输入，已将您消息中的图片忽略后提交给AI\n\n' + reply
 
         # 回复消息
         await reply_msg(event, reply, sessions.is_voice(session_id))
 
     except Exception as e:
         logger.error(f'处理消息出错: {e}')
-        if 'Conversation not found' in str(e):
-            return {'reply': MessageSegment.reply(event.message_id) + f'{BOT_INFO_PREFIX}已为您重置对话，请重新发送消息'}
-        if 'Something went wrong, please try reloading the conversation' in str(e):
-            return {'reply': MessageSegment.reply(event.message_id) + f'{BOT_INFO_PREFIX}Oops! 出现未知错误，已为您重置对话，请重新发送消息\n{e}'}
-        if 'You have sent too many requests to the model. Please try again later' in str(e):
-            return {'reply': MessageSegment.reply(event.message_id) + f'{BOT_INFO_PREFIX}当前本 Bot 请求速率达到上游模型上限，请稍后重试\n{e}'}
-        if 'Too Many Requests' in str(e):
-            return {'reply': MessageSegment.reply(event.message_id) + f'{BOT_INFO_PREFIX}当前本 Bot 请求速率达到上游接口上限，请稍后重试\n{e}'}
-
-        return {'reply': MessageSegment.reply(event.message_id) + f'{BOT_INFO_PREFIX}处理消息出错，请稍后重试\n{e}'}
+        reply = MessageSegment.reply(event.message_id) + config.BOT_INFO_PREFIX
+        
+        error_messages = {
+            'Conversation not found': '已为您重置对话，请重新发送消息',
+            'Something went wrong, please try reloading the conversation': f'Oops! 出现未知错误，已为您重置对话，请重新发送消息\n{e}',
+            'You have sent too many requests to the model. Please try again later': f'当前本 Bot 请求速率达到上游模型上限，请稍后重试\n{e}',
+            'Too Many Requests': f'当前本 Bot 请求速率达到上游接口上限，请稍后重试\n{e}'
+        }
+        
+        for msg, response in error_messages.items():
+            if msg in str(e):
+                return {'reply': reply + response}
+        
+        return {'reply': reply + f'处理消息出错，请稍后重试\n{e}'}
     
     return 
 
 
-bot.run(host='127.0.0.1', port=PORT)
+bot.run(host='127.0.0.1', port=config.PORT)

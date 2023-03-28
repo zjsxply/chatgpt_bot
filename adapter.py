@@ -1,10 +1,10 @@
-from config import OPENAI_API_KEY, OPENAI_TEMPERATURE, PROXY, OPENAI_TIMEOUT, OPENAI_CHAT_API_CMDS, BING_CMDS, BING_COOKIES, BING_STYLE, OPENAI_WEB_ACCOUNT, OPENAI_CHAT_WEB_CMDS, OPENAI_CHAT_WEB_BASE, BARD_COOKIE, BARD_CMDS
 import os
 import tenacity
 import asyncio
-# from main import logger
 from datetime import datetime
 import logging
+
+import config
 
 import openai
 import openai_async
@@ -17,9 +17,9 @@ from revChatGPT import V1
 import Bard
 
 
-os.environ['HTTP_PROXY'] = PROXY
-os.environ['HTTPS_PROXY'] = PROXY
-openai.api_key = OPENAI_API_KEY
+os.environ['HTTP_PROXY'] = config.PROXY
+os.environ['HTTPS_PROXY'] = config.PROXY
+openai.api_key = config.OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -93,12 +93,12 @@ async def _request_openai_chat_api(msg):
         ):
         print(chunk) """
     return await openai_async.chat_complete(
-        OPENAI_API_KEY,
-        timeout=OPENAI_TIMEOUT,
+        config.OPENAI_API_KEY,
+        timeout=config.OPENAI_TIMEOUT,
         payload={
             "model": "gpt-3.5-turbo",
             "messages": msg,
-            "temperature": OPENAI_TEMPERATURE,
+            "temperature": config.OPENAI_TEMPERATURE,
         },
     )
 
@@ -118,7 +118,7 @@ async def ask_chat_api(messages, max_tokens=4096):
 async def _request_openai_credit_api():
     '''向 OpenAi 发送请求，出错自动重试'''
     return await openai_async.credit_grants(
-        OPENAI_API_KEY,
+        config.OPENAI_API_KEY,
         timeout=10,
         payload={},
     )
@@ -130,9 +130,9 @@ async def check_credits():
 
 # OpenAI Web
 
-V1_lock = asyncio.Lock()
-chatbot = V1.AsyncChatbot(config=OPENAI_WEB_ACCOUNT)
-V1.BASE_URL = OPENAI_CHAT_WEB_BASE
+openai_web_lock = asyncio.Lock()
+chatbot = V1.AsyncChatbot(config=config.OPENAI_WEB_ACCOUNT)
+V1.BASE_URL = config.OPENAI_CHAT_WEB_BASE
 
 # Session 内含 Bing
 
@@ -142,15 +142,15 @@ class Session:
         self.model = model
         self.id = session_id
         self.lock = asyncio.Lock()
-        if model in OPENAI_CHAT_API_CMDS:
+        if model in config.OPENAI_CHAT_API_CMDS:
             self.history = []
-        elif model in BING_CMDS:
-            self.bot = EdgeGPT.Chatbot(cookies=BING_COOKIES)
-        elif model in OPENAI_CHAT_WEB_CMDS:
+        elif model in config.BING_CMDS:
+            self.bot = EdgeGPT.Chatbot(cookies=config.BING_COOKIES)
+        elif model in config.OPENAI_CHAT_WEB_CMDS:
             self.conversation_id = None
             self.parent_id = None
-        elif model in BARD_CMDS:
-            self.bot = Bard.Chatbot(session_id=BARD_COOKIE)
+        elif model in config.BARD_CMDS:
+            self.bot = Bard.Chatbot(session_id=config.BARD_COOKIE)
         self.voice = False
         self.last_active = datetime.now()
     
@@ -158,7 +158,7 @@ class Session:
         '''询问问题中，获得锁，阻塞下一次提问'''
         self.last_active = datetime.now()
         async with self.lock:
-            if self.model in OPENAI_CHAT_API_CMDS:
+            if self.model in config.OPENAI_CHAT_API_CMDS:
                 msg = {"role": "user", "content": question}
                 if _count_tokens([msg]) > 4096:
                     raise ValueError(f'您的输入超出 OpenAI gpt-3.5-turbo 模型的最大输入长度！最大支持 4096 tokens，约为 1300 汉字或 3000 英文单词，而您输入了 {_count_tokens([msg])} tokens')
@@ -166,10 +166,10 @@ class Session:
                 self.history, finish_reason = await ask_chat_api(self.history)
                 reply = self.history[-1]['content'].strip()
             
-            elif self.model in BING_CMDS:
+            elif self.model in config.BING_CMDS:
                 if len(question) > 2000:
                     raise ValueError(f'您的输入超出 Bing Chat 的最大输入长度！最大支持 2000 字符，而您输入了 {len(question)} 字符')
-                reply_obj = await self.bot.ask(prompt=question, conversation_style=eval(f'EdgeGPT.ConversationStyle.{BING_STYLE}'))
+                reply_obj = await self.bot.ask(prompt=question, conversation_style=eval(f'EdgeGPT.ConversationStyle.{config.BING_STYLE}'))
                 # reply = html.unescape.unquote(reply_obj['item']['messages'][-1]['text'])
                 reply = reply_obj['item']['messages'][-1]['adaptiveCards'][0]['body'][0]['text']
                 """ sources_obj = reply_obj['item']['messages'][-1]['sourceAttributions']
@@ -181,9 +181,9 @@ class Session:
                     reply += '\n\n您可能想问：\n' + suggested_responses
                 finish_reason = 'stop' # 无法检测 默认stop
             
-            elif self.model in OPENAI_CHAT_WEB_CMDS:
-                async with  V1_lock:
-                    async for data in chatbot.ask(prompt=question, conversation_id=self.conversation_id, timeout=OPENAI_TIMEOUT):
+            elif self.model in config.OPENAI_CHAT_WEB_CMDS:
+                async with  openai_web_lock:
+                    async for data in chatbot.ask(prompt=question, conversation_id=self.conversation_id, timeout=config.OPENAI_TIMEOUT):
                         pass
                 reply = data["message"]
                 if not self.conversation_id:
@@ -196,7 +196,7 @@ class Session:
                 chatbot.conversation_id = None
                 finish_reason = 'stop' # 无法检测 默认stop
             
-            elif self.model in BARD_CMDS:
+            elif self.model in config.BARD_CMDS:
                 results = self.bot.ask(question)
                 reply = results["content"]
                 finish_reason = 'stop' # 无法检测 默认stop
@@ -206,14 +206,14 @@ class Session:
     
     async def rm_history(self) -> None:
         async with  self.lock:
-            if self.model in OPENAI_CHAT_API_CMDS:
+            if self.model in config.OPENAI_CHAT_API_CMDS:
                 self.history = []
-            elif self.model in BING_CMDS:
+            elif self.model in config.BING_CMDS:
                 await self.bot.reset()
-            elif self.model in OPENAI_CHAT_WEB_CMDS:
+            elif self.model in config.OPENAI_CHAT_WEB_CMDS:
                 await chatbot.delete_conversation(self.conversation_id)
                 self.conversation_id = None
-            elif self.model in BARD_CMDS:
+            elif self.model in config.BARD_CMDS:
                 self.bot.conversation_id = ""
                 self.bot.response_id = ""
                 self.bot.choice_id = ""
