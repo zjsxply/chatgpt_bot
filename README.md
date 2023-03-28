@@ -15,6 +15,12 @@
 
 请先将`config.template.py`复制一份命名为`config.py`，而后按照里面的说明配置各项内容
 
+## 安装依赖
+
+```powershell
+pip install -r -U requirement.txt
+```
+
 ## 运行
 
 ```powershell
