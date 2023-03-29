@@ -189,8 +189,11 @@ class Session:
                 if not self.conversation_id:
                     # 记录对话 id，标示对话已初始化完毕
                     self.conversation_id = data["conversation_id"]
-                    # 会话id置为标题
-                    await chatbot.change_title(self.conversation_id, self.id)
+                    # 会话 id 置为标题
+                    try:
+                        await chatbot.change_title(self.conversation_id, self.id)
+                    except Exception as e:
+                        logger.warning("OpenAI Web 页面设置会话标题出错，session_id: {self.id}, Error: {e}")
                 self.parent_id = data["parent_id"]
                 # chatbot 不记录 conversation_id
                 chatbot.conversation_id = None

@@ -197,7 +197,7 @@ async def _(event: Event):
         session_id = generate_session_id(prefix, event)
         if utilities.fuzzy_equal(question, config.RESET_CMD):
             await sessions.rm_history(session_id)
-            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}已重置您的会话')
+            await bot.send(event, f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}已重置您的 {prefix} 会话')
             return
 
         # 处理账户额度指令
@@ -241,14 +241,16 @@ async def _(event: Event):
         reply = MessageSegment.reply(event.message_id) + config.BOT_INFO_PREFIX
         
         error_messages = {
-            'Conversation not found': '已为您重置对话，请重新发送消息',
-            'Something went wrong, please try reloading the conversation': f'Oops! 出现未知错误，已为您重置对话，请重新发送消息\n{e}',
-            'You have sent too many requests to the model. Please try again later': f'当前本 Bot 请求速率达到上游模型上限，请稍后重试\n{e}',
-            'Too Many Requests': f'当前本 Bot 请求速率达到上游接口上限，请稍后重试\n{e}'
+            'Conversation not found': ('已为您重置对话，请重新发送消息', True), 
+            'Something went wrong, please try reloading the conversation': (f'Oops! 出现未知错误，已为您重置对话，请重新发送消息\n{e}', True), 
+            'You have sent too many requests to the model. Please try again later': (f'当前本 Bot 请求速率达到上游模型上限，请稍后重试\n{e}', False), 
+            'Too Many Requests': (f'当前本 Bot 请求速率达到上游接口上限，请稍后重试\n{e}', False), 
         }
         
         for msg, response in error_messages.items():
             if msg in str(e):
+                if response[1]:
+                    await sessions.rm_history(session_id)
                 return {'reply': reply + response}
         
         return {'reply': reply + f'处理消息出错，请稍后重试\n{e}'}
