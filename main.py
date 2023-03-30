@@ -4,6 +4,7 @@ from aiocqhttp.message import unescape
 import logging
 import re
 import pypinyin
+import requests
 
 import utilities
 import render
@@ -173,6 +174,12 @@ def check_command(event: Event, segments: Message, msg_content: str) -> tuple[st
                 return None, None
     return prefix, question
 
+@bot.on_meta_event
+async def _(event: Event):
+    if event.meta_event_type == 'heartbeat' and not event.status['online']:
+        r = requests.get(config.NETWORK_LOGIN_URL)
+        logger.info(f'检测到断网，已重新登陆：{r.text}')
+
 @bot.on_message
 async def _(event: Event):
     anonymous = ', ' + event.anonymous["flag"] if event.anonymous else ''
@@ -216,9 +223,27 @@ async def _(event: Event):
         
         # 戳一戳以示收到（好像没用）
         await bot.send(event, MessageSegment.poke('poke', event.user_id))
-
+        
+        # 若发送了图片，则进行 OCR
+        flag = False
+        reply_prefix = ''
+        for i in range(len(segments)):
+            if segments[i].type == 'image':
+                flag = True
+                ocr = await bot.call_action('ocr_image', image=segments[i].data['file'])
+                if 'texts' not in ocr:
+                    reply_prefix += f'{config.BOT_INFO_PREFIX}图片{segments[i]}OCR 失败\n'
+                else:
+                    text = '\n'.join(x['text'] for x in ocr['texts'])
+                    segments[i] = MessageSegment.text(text)
+        if flag:
+            msg_content = segments.extract_plain_text().strip()
+            prefix, question = check_command(event, segments, msg_content)
+            reply_prefix += f'{config.BOT_INFO_PREFIX}已将您消息中的图片转文字后提交给AI，您发送的内容是\n\n{question}\n\n{config.BOT_INFO_PREFIX}以下是 AI 回复内容：\n\n'
+        
         # 取出回复内容
         reply, finish_reason = await sessions.ask(prefix, session_id, question)
+        reply = reply_prefix + reply
         if finish_reason == 'length':
             reply += f'\n{config.BOT_INFO_PREFIX}回复过长已被截断，您可说`继续`来获取接下来的内容'
         
@@ -227,11 +252,6 @@ async def _(event: Event):
             reply = render.replace_latex(render.sub_image(reply))
         except Exception as e:
             logger.error(f'渲染 LaTeX 公式出错: {e}, {reply}')
-        
-        # 若发送了图片，则进行提示
-        for segment in segments:
-            if segment.type == 'image':
-                reply = f'{config.BOT_INFO_PREFIX}不支持图片输入，已将您消息中的图片忽略后提交给AI\n\n' + reply
 
         # 回复消息
         await reply_msg(event, reply, sessions.is_voice(session_id))
@@ -245,6 +265,7 @@ async def _(event: Event):
             'Something went wrong, please try reloading the conversation': (f'Oops! 出现未知错误，已为您重置对话，请重新发送消息\n{e}', True), 
             'You have sent too many requests to the model. Please try again later': (f'当前本 Bot 请求速率达到上游模型上限，请稍后重试\n{e}', False), 
             'Too Many Requests': (f'当前本 Bot 请求速率达到上游接口上限，请稍后重试\n{e}', False), 
+            'SEND_MSG_API_ERROR': ('发送消息失败，原因未知，可能与返回内容过长有关，请稍后重试', False), 
         }
         
         for msg, response in error_messages.items():
