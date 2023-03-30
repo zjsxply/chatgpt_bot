@@ -272,7 +272,7 @@ async def _(event: Event):
             if msg in str(e):
                 if response[1]:
                     await sessions.rm_history(session_id)
-                return {'reply': reply + response}
+                return {'reply': reply + response[0]}
         
         return {'reply': reply + f'处理消息出错，请稍后重试\n{e}'}
     
