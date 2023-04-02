@@ -19,6 +19,7 @@ import Bard
 
 os.environ['HTTP_PROXY'] = config.PROXY
 os.environ['HTTPS_PROXY'] = config.PROXY
+openai.proxy = config.PROXY
 openai.api_key = config.OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)

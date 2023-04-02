@@ -60,12 +60,14 @@ def mask_sensitive_text(text_list: list, regex_file: str) -> list:
         result_list.append(text)
     return result_list
 
-def _cut_message(segments: Message, MAX_LEN: int) -> list[MessageSegment]:
+def _cut_message(segments: Message, MAX_LEN: int) -> list[Message]:
     '''将超过 MAX_LEN 的消息分为多条'''
     cuts = [Message()]
     for segment in segments:
         if segment.type == 'text':
             segment_str = unescape(str(segment))
+
+            # 如果该段消息加上去没超过最大长度，则当前的最后一条消息继续延长，否则新增消息
             if len(cuts[-1].extract_plain_text()) + len(segment_str) <= MAX_LEN:
                 cuts[-1].append(segment)
             else:
@@ -235,7 +237,7 @@ async def _(event: Event):
                     reply_prefix += f'{config.BOT_INFO_PREFIX}图片{segments[i]}OCR 失败\n'
                 else:
                     text = '\n'.join(x['text'] for x in ocr['texts'])
-                    segments[i] = MessageSegment.text(text)
+                    segments[i] = MessageSegment.text(f'\n{text}\n')
         if flag:
             msg_content = segments.extract_plain_text().strip()
             prefix, question = check_command(event, segments, msg_content)

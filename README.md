@@ -20,7 +20,7 @@
 ## 安装依赖
 
 ```powershell
-pip install -r -U requirement.txt
+pip install -r requirement.txt -U -i https://pypi.python.org/simple
 ```
 
 ## 运行
@@ -29,3 +29,4 @@ pip install -r -U requirement.txt
 python main.py
 ```
 
+另外需要运行 go-cqhttp

@@ -13,7 +13,7 @@ GROUP_ID = 123456
 # 当回复消息在手机上显示的行数（估计值）超过该值时，转为合并转发消息发送
 MAX_ROWS = 15
 # revchatgpt 的后端接口
-OPENAI_CHAT_WEB_BASE = "https://chatgpt-proxy.lss233.com/api/" # 'https://bypass.duti.tech/api/'
+OPENAI_CHAT_WEB_BASE = "https://chatgpt-proxy.lss233.com/api/" # https://bypass.duti.tech/api/ https://chatgpt-proxy.lss233.com/api/ https://api.pawan.krd/backend-api/
 # 校园网登录链接
 NETWORK_LOGIN_URL = ''
 
