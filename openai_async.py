@@ -1,5 +1,4 @@
 import httpx
-import json
 from config import PROXY
 
 
@@ -37,3 +36,5 @@ generate_img = _send_to_openai("https://api.openai.com/v1/images/generations")
 embeddings = _send_to_openai("https://api.openai.com/v1/embeddings")
 chat_complete = _send_to_openai("https://api.openai.com/v1/chat/completions")
 credit_grants = _send_to_openai("https://api.openai.com/dashboard/billing/credit_grants", "get")
+subscription = _send_to_openai("https://api.openai.com/v1/dashboard/billing/subscription", "get")
+usage = _send_to_openai("https://api.openai.com/v1/dashboard/billing/usage", "get")

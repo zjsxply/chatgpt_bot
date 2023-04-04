@@ -1,7 +1,7 @@
 import os
 import tenacity
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 import config
@@ -118,16 +118,39 @@ async def ask_chat_api(messages, max_tokens=4096):
 @tenacity.retry(stop=tenacity.stop_after_attempt(3), after=tenacity.after_log(logger, logging.ERROR), reraise=True, wait=tenacity.wait_exponential(1, 3))
 async def _request_openai_credit_api():
     '''向 OpenAi 发送请求，出错自动重试'''
-    return await openai_async.credit_grants(
+    """ return await openai_async.credit_grants(
+        config.OPENAI_API_KEY,
+        timeout=10,
+        payload={},
+    ) """
+    r = await openai_async.subscription(
         config.OPENAI_API_KEY,
         timeout=10,
         payload={},
     )
+    expires_at, total_granted = datetime.fromtimestamp(r["access_until"]), r["hard_limit_usd"]
+    
+    # 获取当前日期和时间（格林尼治时间）
+    now = datetime.utcnow()
+    
+    # 计算90天前的日期
+    delta = timedelta(days=90)
+    days_ago = now - delta
+    
+    r = await openai_async.usage(
+        config.OPENAI_API_KEY,
+        timeout=10,
+        payload={'start_date': days_ago.strftime('%Y-%m-%d'), 'end_date': now.strftime('%Y-%m-%d')},
+    )
+    total_used = r["total_usage"]
+    total_available = float(total_granted) - float(total_used)
+
+    return total_used, total_available, total_granted, expires_at
 
 async def check_credits():
-    resp = await _request_openai_credit_api()
-    return resp['total_used'], resp['total_available'], resp['total_granted'], datetime.fromtimestamp(resp['grants']['data'][0]['expires_at'])
-
+    """ resp = await _request_openai_credit_api()
+    return resp['total_used'], resp['total_available'], resp['total_granted'], datetime.fromtimestamp(resp['grants']['data'][0]['expires_at']) """
+    return await _request_openai_credit_api()
 
 # OpenAI Web
 

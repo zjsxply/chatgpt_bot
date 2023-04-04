@@ -267,7 +267,7 @@ async def _(event: Event):
             'Something went wrong, please try reloading the conversation': (f'Oops! 出现未知错误，已为您重置对话，请重新发送消息\n{e}', True), 
             'You have sent too many requests to the model. Please try again later': (f'当前本 Bot 请求速率达到上游模型上限，请稍后重试\n{e}', False), 
             'Too Many Requests': (f'当前本 Bot 请求速率达到上游接口上限，请稍后重试\n{e}', False), 
-            'SEND_MSG_API_ERROR': ('发送消息失败，原因未知，可能与返回内容过长有关，请稍后重试', False), 
+            'SEND_MSG_API_ERROR': ('回复失败，原因未知，可能与返回内容过长有关。若此错误重复出现，请您尝试使用镜像站点，具体请查看群精华消息', False), 
         }
         
         for msg, response in error_messages.items():
