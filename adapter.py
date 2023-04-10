@@ -142,7 +142,7 @@ async def _request_openai_credit_api():
         timeout=10,
         payload={'start_date': days_ago.strftime('%Y-%m-%d'), 'end_date': now.strftime('%Y-%m-%d')},
     )
-    total_used = r["total_usage"]
+    total_used = float(r["total_usage"]) / 100
     total_available = float(total_granted) - float(total_used)
 
     return total_used, total_available, total_granted, expires_at

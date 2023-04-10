@@ -136,15 +136,22 @@ async def _is_in_group(group_id: int, user_id: int) -> bool:
             return False
     return True
 
+async def _is_in_groups(group_ids: list[int], user_id: int) -> bool:
+    '''判断某人是否在某群中'''
+    for group_id in group_ids:
+        if not _is_in_group(group_id, user_id):
+            return False
+    return True
+
 async def check_permission(event: Event) -> tuple[bool, str]:
     '''Checks if user has permission to access the bot. '''
     
     # 匿名用户不在成员列表中，但也允许访问
-    if event.group_id == config.GROUP_ID:
+    if event.group_id in config.GROUP_IDS:
         return True, None
 
     # 若此人不在指定群里，则拒绝请求
-    if not await _is_in_group(config.GROUP_ID, event.user_id):
+    if not await _is_in_groups(config.GROUP_IDS, event.user_id):
         return False, '您需要是指定群的群成员，才可使用本Bot'
     
     return True, None
@@ -212,7 +219,7 @@ async def _(event: Event):
         # 处理账户额度指令
         if utilities.fuzzy_equal(question, config.USAGE_CMD):
             result = await adapter.check_credits()
-            reply = '已使用${}，剩余${}/${}，{}到期'.format(*result)
+            reply = '已使用${:.2f}，剩余${:.2f}/${:.2f}，{}到期'.format(*result)
             await bot.send(event, f'{MessageSegment.reply(event.message_id)}{config.BOT_INFO_PREFIX}{reply}')
             return
 
